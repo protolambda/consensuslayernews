@@ -59,28 +59,36 @@ func main() {
 		return v
 	}
 
-	forwardResource := func (w http.ResponseWriter, r *http.Request) {
-		if len(r.RequestURI) > 1000 {
-			log.Println("URL too long")
-			w.WriteHeader(400)
-			return
+	deadResource := func() func (w http.ResponseWriter, r *http.Request) {
+		return func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("Dead end: %q", r.RequestURI)
+			w.WriteHeader(404)
 		}
-		log.Printf("Forwarding: %q", r.RequestURI)
-		path := strings.TrimPrefix(r.URL.Path, "/forward/")
-		resp, err := cl.Get(fmt.Sprintf("https://hackmd.io/%s", path))
+	}
+	forwardResource := func(strip string) func (w http.ResponseWriter, r *http.Request) {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if len(r.RequestURI) > 1000 {
+				log.Println("URL too long")
+				w.WriteHeader(400)
+				return
+			}
+			log.Printf("Forwarding: %q", r.RequestURI)
+			path := strings.TrimPrefix(r.URL.Path, strip)
+			resp, err := cl.Get(fmt.Sprintf("https://hackmd.io/%s", path))
 
-		if err != nil {
-			w.WriteHeader(500)
-			w.Write([]byte("Failed to get news page"))
-			log.Println(err)
-			return
-		}
-		io.Copy(w, resp.Body)
-		defer resp.Body.Close()
+			if err != nil {
+				w.WriteHeader(500)
+				w.Write([]byte("Failed to get news page"))
+				log.Println(err)
+				return
+			}
+			io.Copy(w, resp.Body)
+			defer resp.Body.Close()
 
-		if resp.StatusCode != 200 {
-			log.Printf("unexpected status code: %d", resp.StatusCode)
-			return
+			if resp.StatusCode != 200 {
+				log.Printf("unexpected status code: %d", resp.StatusCode)
+				return
+			}
 		}
 	}
 
@@ -143,7 +151,8 @@ renaming "eth2" to "consensus-layer" and "eth1" to "execution-layer"</i></div>`)
 
 	router := mux.NewRouter()
 	router.HandleFunc("/", newsPage).Methods("GET")
-	router.PathPrefix("/forward/").HandlerFunc(forwardResource).Methods("GET")
+	router.PathPrefix("/forward/").HandlerFunc(forwardResource("/forward/")).Methods("GET")
+	router.PathPrefix("/api/").HandlerFunc(deadResource()).Methods("GET")
 	router.HandleFunc(`/news/{newsid}`, newsPage).Methods("GET")
 
 	srv := &http.Server{
