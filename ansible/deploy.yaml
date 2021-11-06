@@ -44,7 +44,7 @@
         ports: # Cannot run on host network due to nginx proxy
           - "5000:5000"
         restart: "true"
-        command: "--port=5000 --self=https://consensuslayer.news"
+        command: "--port=5000 --domain=consensuslayer.news --self=https://consensuslayer.news"
         env:
           VIRTUAL_HOST: "consensuslayer.news"
           VIRTUAL_PORT: "5000"

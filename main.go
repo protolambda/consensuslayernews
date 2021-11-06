@@ -23,17 +23,20 @@ const maxSize = 1000*1000
 
 func main() {
 	port := flag.Int("port", 5000, "port")
-	selfDomain := flag.String("self", "http://localhost:5000", "self domain")
+	self := flag.String("self", "http://localhost:5000", "self domain")
+	domain := flag.String("domain", "localhost", "self domain")
 	flag.Parse()
 
 	cl := &http.Client{
 		Timeout:       15 * time.Second,
 	}
 
-	newsPath := fmt.Sprintf("%s/news/", *selfDomain)
+	newsPath := fmt.Sprintf("%s/news/", *self)
 
 
 	ensureConsensusLayer := func(v string) string {
+		v = strings.ReplaceAll(v, "window.domain = 'hackmd.io'", fmt.Sprintf("window.domain = '%s'", *domain))
+		v = strings.ReplaceAll(v, "window.urlpath = ''", fmt.Sprintf("window.urlpath = 'forward'"))
 		v = strings.ReplaceAll(v, "eth2.news", "consensuslayer.news")
 		v = strings.ReplaceAll(v, "Ethereum 2.0", "Ethereum Consensus Layer")
 		v = strings.ReplaceAll(v, "Eth2", "Ethereum Consensus Layer")
@@ -56,6 +59,30 @@ func main() {
 		return v
 	}
 
+	forwardResource := func (w http.ResponseWriter, r *http.Request) {
+		if len(r.RequestURI) > 1000 {
+			log.Println("URL too long")
+			w.WriteHeader(400)
+			return
+		}
+		log.Printf("Forwarding: %q", r.RequestURI)
+		path := strings.TrimPrefix(r.URL.Path, "/forward/")
+		resp, err := cl.Get(fmt.Sprintf("https://hackmd.io/%s", path))
+
+		if err != nil {
+			w.WriteHeader(500)
+			w.Write([]byte("Failed to get news page"))
+			log.Println(err)
+			return
+		}
+		io.Copy(w, resp.Body)
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			log.Printf("unexpected status code: %d", resp.StatusCode)
+			return
+		}
+	}
 
 	newsPage := func (w http.ResponseWriter, r *http.Request) {
 		if len(r.RequestURI) > 1000 {
@@ -116,6 +143,7 @@ renaming "eth2" to "consensus-layer" and "eth1" to "execution-layer"</i></div>`)
 
 	router := mux.NewRouter()
 	router.HandleFunc("/", newsPage).Methods("GET")
+	router.PathPrefix("/forward/").HandlerFunc(forwardResource).Methods("GET")
 	router.HandleFunc(`/news/{newsid}`, newsPage).Methods("GET")
 
 	srv := &http.Server{
